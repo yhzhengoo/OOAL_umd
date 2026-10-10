@@ -27,6 +27,7 @@ from tqdm import tqdm
 from ooal_umd import umd_protocol as P
 from ooal_umd.data_umd import RESIZE_HW, UMDTest
 from ooal_umd.model_umd import OOALUMD, check_forward_all
+from ooal_umd.local_backbones import add_arguments
 from utils.util import set_seed
 
 
@@ -40,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--limit", type=int, default=0, help="first N frames only (smoke test)")
     p.add_argument("--num_workers", type=int, default=8)
     p.add_argument("--gpu", type=str, default="0")
+    add_arguments(p)
     return p.parse_args()
 
 
@@ -113,6 +115,9 @@ def main() -> None:
         "resize_hw": args.resize_hw,
         "threshold": float(ev.THRESHOLD),
         "self_check_max_diff": self_check,
+        "protocol": P.metadata(),
+        "backbones": {k: getattr(args, k) for k in ("dino_repo", "dino_weights", "clip_weights")},
+        "torch_version": torch.__version__,
         "confusion": cm_total.tolist(),
         "metrics": metrics,
         "seconds": round(time.time() - t0, 1),

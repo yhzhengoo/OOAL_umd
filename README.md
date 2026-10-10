@@ -14,6 +14,9 @@ We introduce One-shot Open Affordance Learning (OOAL), where a model is trained 
 
 ## Usage
 
+UMD reproduction on another server: [server handoff](ooal_umd/SERVER_HANDOFF.md),
+with the fixed protocol in [OOAL_UMD复现实验.md](ooal_umd/OOAL_UMD复现实验.md).
+
 ### 1. Requirements
 
 Code is tested under Pytorch 1.12.1, python 3.7, and CUDA 11.3

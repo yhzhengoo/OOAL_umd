@@ -1,0 +1,7 @@
+.venv/
+.runtime/
+runs/
+figs/
+ooal_umd_report.md
+__pycache__/
+*.pyc

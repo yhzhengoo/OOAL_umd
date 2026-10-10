@@ -1,0 +1,12 @@
+# Install into an isolated environment with a matching torch / torchvision pair.
+# Validated pair on NF5280M6: torch==2.6.0+cu124 / torchvision==0.21.0+cu124.
+setuptools==69.5.1
+numpy>=1.24,<2
+scipy
+opencv-python-headless<4.12
+Pillow
+ftfy
+regex
+tqdm
+matplotlib
+omegaconf

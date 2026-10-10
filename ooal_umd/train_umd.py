@@ -24,6 +24,7 @@ import torch
 from ooal_umd import umd_protocol as P
 from ooal_umd.data_umd import CROP_HW, RESIZE_HW, UMDTrain
 from ooal_umd.model_umd import OOALUMD
+from ooal_umd.local_backbones import add_arguments
 from utils.util import get_optimizer, set_seed
 
 
@@ -43,6 +44,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save_step", type=int, default=5000)
     p.add_argument("--seed", type=int, default=321)
     p.add_argument("--gpu", type=str, default="0")
+    add_arguments(p)
     return p.parse_args()
 
 
@@ -59,7 +61,8 @@ def main() -> None:
     logging.basicConfig(filename=os.path.join(run, "run.log"), level=logging.INFO, format="%(message)s")
     log = logging.getLogger()
     log.addHandler(logging.StreamHandler(sys.stdout))
-    config = {**vars(args), "references": [r.id for r in refs]}
+    config = {**vars(args), "references": [r.id for r in refs], "protocol": P.metadata(),
+              "torch_version": torch.__version__}
     with open(os.path.join(run, "config.json"), "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
     log.info(f"{args.split}: {len(refs)} one-shot references -> {run}")

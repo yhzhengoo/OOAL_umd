@@ -13,13 +13,17 @@ evaluated by the same code:
 * metric      : ``confusion`` + ``scores`` (8x8 confusion matrix over all
                 pixels, mIoU over the 7 affordances, background excluded)
 
-Set ``DRAWAFFORD_ROOT`` to the directory that contains ``affordance_research``.
+Set ``DRAWAFFORD_ROOT`` to the ConceptAttention or standalone DrawAfford repo.
+Data paths can be overridden with UMD_DATASET_ROOT / UMD_BASE_REF_ROOT /
+UMD_NOVEL_REF_ROOT without editing the shared evaluator.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import hashlib
+import importlib
 from functools import lru_cache
 from pathlib import Path
 
@@ -41,20 +45,45 @@ def umd_eval():
     root = os.environ.get("DRAWAFFORD_ROOT")
     if not root:
         raise RuntimeError(
-            "Set DRAWAFFORD_ROOT to the directory containing affordance_research/ "
-            "(the drawafford / ConceptAttention repo root)."
+            "Set DRAWAFFORD_ROOT to the ConceptAttention or standalone DrawAfford repo root."
         )
     root_path = Path(root).expanduser().resolve()
-    if not (root_path / "affordance_research" / "umd_eval" / "umd_eval.py").is_file():
-        raise FileNotFoundError(f"{root_path}: affordance_research/umd_eval/umd_eval.py not found")
+    candidates = ("affordance_research.umd_eval.umd_eval", "umd_eval.umd_eval")
+    module_name = next((name for name in candidates
+                        if (root_path / Path(*name.split("."))).with_suffix(".py").is_file()), None)
+    if module_name is None:
+        raise FileNotFoundError(
+            f"{root_path}: neither affordance_research/umd_eval/umd_eval.py nor umd_eval/umd_eval.py found"
+        )
     if str(root_path) not in sys.path:
         sys.path.insert(0, str(root_path))
-    from affordance_research.umd_eval import umd_eval as ev  # noqa: E402
+    ev = importlib.import_module(module_name)
+    expected_file = (root_path / Path(*module_name.split("."))).with_suffix(".py")
+    if Path(ev.__file__).resolve() != expected_file.resolve():
+        raise RuntimeError(f"imported {ev.__file__}, expected {expected_file}; restart with the correct DRAWAFFORD_ROOT")
+    for env_name, attr in (("UMD_DATASET_ROOT", "DATASET"),
+                           ("UMD_BASE_REF_ROOT", "BASE_REF"),
+                           ("UMD_NOVEL_REF_ROOT", "NOVEL_REF")):
+        if os.environ.get(env_name):
+            setattr(ev, attr, Path(os.environ[env_name]).expanduser().resolve())
 
     names = tuple(n.replace("-", "_") for n in ev.AFFORDANCE_NAMES)
     if names != OOAL_CLASS_NAMES:
         raise RuntimeError(f"class order differs from umd_eval: {names}")
+    if ev.N_CLASSES != 7 or ev.THRESHOLD != 0.5:
+        raise RuntimeError("the fixed UMD protocol requires 7 foreground classes and threshold 0.5")
     return ev
+
+
+def metadata() -> dict:
+    """Record the actual shared evaluator and data roots in experiment outputs."""
+    ev = umd_eval()
+    source = Path(ev.__file__).resolve()
+    return {"evaluator": str(source),
+            "evaluator_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "dataset_root": str(ev.DATASET), "base_ref_root": str(ev.BASE_REF),
+            "novel_ref_root": str(ev.NOVEL_REF), "threshold": float(ev.THRESHOLD),
+            "affordance_names": list(ev.AFFORDANCE_NAMES)}
 
 
 def inventory(split: str):

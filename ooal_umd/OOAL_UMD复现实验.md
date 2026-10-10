@@ -33,7 +33,9 @@
 
 ## 4. 环境
 
-OOAL 的 README 写的是 Python 3.7 / PyTorch 1.12，但 `torch.hub` 拉到的 DINOv2 新代码要求 Python ≥ 3.10（issue #13 的报错就是这个）。从 drawafford 环境克隆一份：
+2026-10-11 服务器迁移补充：先按 [SERVER_HANDOFF.md](SERVER_HANDOFF.md) 配置数据路径、本地官方权重及隔离环境。已验证 torch 2.6.0 / torchvision 0.21.0；下方 torch 2.4.1 的安装示例仍是另一种匹配组合，不要只降级 torchvision。`models/ooal.py` 保持不改，`OOALUMD` 只在构造时接入本地加载器。
+
+OOAL 的 README 写的是 Python 3.7 / PyTorch 1.12，但 `torch.hub` 拉到的 DINOv2 新代码要求 Python ≥ 3.10（issue #13 的报错就是这个）。下面仅适用于已有的 drawafford 环境确实使用 torch 2.4.1；其他环境按交接手册安装匹配组合：
 
 ```bash
 conda create -n ooal --clone drawafford
@@ -43,17 +45,18 @@ pip install torchvision==0.19.1 ftfy regex tqdm matplotlib "setuptools<70"
 
 - `torchvision==0.19.1` 对应环境里的 torch 2.4.1；
 - `setuptools<70`：OOAL 自带的 CLIP 代码写的是 `from pkg_resources import packaging`，新版 setuptools 没有这个名字；
-- 第一次运行会联网下载 DINOv2（torch.hub）和 CLIP ViT-B/16（`~/.cache/clip`）。
+- 未配置本地权重时，第一次运行会联网下载 DINOv2（torch.hub）和 CLIP ViT-B/16（`~/.cache/clip`）；本地官方权重配置见交接手册第 5 节。
 
 ## 5. 运行
 
+直接使用 fork `https://github.com/yhzhengoo/OOAL_umd`，无需再覆盖 zip。`DRAWAFFORD_ROOT` 同时支持 `affordance_research/umd_eval/umd_eval.py` 和 `umd_eval/umd_eval.py` 两种目录布局；`UMD_DATASET_ROOT`、`UMD_BASE_REF_ROOT`、`UMD_NOVEL_REF_ROOT` 可覆盖旧服务器路径。见交接手册的 `/home1` 示例。单 GPU 时两组都用 `--gpu 0` 串行运行。
+
 ```bash
-git clone https://github.com/Reagan1311/OOAL && cd OOAL
-unzip /path/to/ooal_umd.zip            # 得到 OOAL/ooal_umd/，不碰 OOAL 原文件
-export DRAWAFFORD_ROOT=/home/yhzheng/ConceptAttention   # 含 affordance_research/ 的目录
+git clone https://github.com/yhzhengoo/OOAL_umd && cd OOAL_umd
+export DRAWAFFORD_ROOT=/实际位置/drawafford_aed
 ```
 
-`umd_eval.py` 顶部的 `DATASET`、`BASE_REF`、`NOVEL_REF` 已经是服务器路径，这里不用再配。
+`DRAWAFFORD_ROOT` 必须指向目标机的代码根目录。按交接手册第 4 节配置 `UMD_DATASET_ROOT`、`UMD_BASE_REF_ROOT`、`UMD_NOVEL_REF_ROOT` 和 `OURS_ROOT`，再运行 `python -m ooal_umd.check_setup --ours_root "$OURS_ROOT"` 确认，不能假设旧服务器路径仍可用。
 
 **第 0 步：CPU 自检（不下载权重，几秒）。**
 
@@ -77,8 +80,10 @@ python -m ooal_umd.test_umd  --split seen --limit 50 \
 
 ```bash
 python -m ooal_umd.train_umd --split seen   --gpu 0
-python -m ooal_umd.train_umd --split unseen --gpu 1
+python -m ooal_umd.train_umd --split unseen --gpu 0
 ```
+
+这里按单 GPU 串行运行；多 GPU 并行时才把 Unseen 的卡号改为实际存在的另一张卡。
 
 **第 3 步：评测最后一步并汇总。**
 
@@ -86,7 +91,7 @@ python -m ooal_umd.train_umd --split unseen --gpu 1
 S=runs/ooal_umd/seen/<时间>
 U=runs/ooal_umd/unseen/<时间>
 python -m ooal_umd.test_umd --split seen   --model_file $S/iter_020000.pth --out_dir $S/eval_020000
-python -m ooal_umd.test_umd --split unseen --model_file $U/iter_020000.pth --out_dir $U/eval_020000 --gpu 1
+python -m ooal_umd.test_umd --split unseen --model_file $U/iter_020000.pth --out_dir $U/eval_020000 --gpu 0
 python -m ooal_umd.report_umd --seen $S/eval_020000 --unseen $U/eval_020000 --out ooal_umd_report.md
 ```
 
@@ -116,11 +121,11 @@ python -m ooal_umd.report_umd --seen $S/eval_020000 --unseen $U/eval_020000 --ou
 
 ## 7. 统计 OOAL 差在哪里，再选图
 
-**第 1 步：逐帧比较。** OOAL 评完之后即可运行；本方法的逐帧混淆矩阵已经在 `results/umd/full_cached/reframe__tcrop__square_full/reframe_eval/{seen,unseen}/per_frame.npz`（默认读 `cm__reframe_bg`，即 78.53 / 57.82 的主结果），不需要重跑。
+**第 1 步：逐帧比较。** OOAL 评完之后即可运行；本方法默认读 `cm__reframe_bg`（指南中的主结果为 78.53 / 57.82）。用户提供的目标机目录如下，本机没有 `/home1` 挂载，尚未验证其中的文件；需先通过 `check_setup` 核对完整帧列表及结果版本。
 
 ```bash
-RUNS=/home/yhzheng/umd/umd_eval_runs        # 你的 UMD 运行目录（仓库里的 results/umd 也有同样的文件）
-R=$RUNS/full_cached/reframe__tcrop__square_full/reframe_eval
+R="${OURS_ROOT:-/home1/yhzheng/umd-one-shot/umd_eval_runs/reframe__tcrop__square_full/reframe_eval}"
+python -m ooal_umd.check_setup --ours_root "$R"
 python -m ooal_umd.compare_umd --split seen \
     --ooal $S/eval_020000/per_frame.npz --ours $R/seen/per_frame.npz --out figs/compare_seen
 python -m ooal_umd.compare_umd --split unseen \
@@ -183,4 +188,7 @@ python -m ooal_umd.viz_umd --split seen --ids $(cat figs/umd_seen_ids.txt) \
 | `compare_umd.py` | 逐帧比较 OOAL 与本方法：按类别、可供性、错误类型统计，输出候选帧（不依赖 torch） |
 | `viz_umd.py` | 定性图（不依赖 torch） |
 | `test_protocol_numpy.py` | 不依赖 torch 的测试（我这里已通过 14 项） |
-| `test_torch_cpu.py` | 需要 torch 的 CPU 测试（我这里装不了 torch，需在服务器上跑） |
+| `test_torch_cpu.py` | 需要 torch 的 CPU 测试；2026-10-11 与 NumPy 测试合计 21 项在服务器通过，两种 DrawAfford 布局均通过 |
+| `local_backbones.py` | 显式加载本地原生 DINOv2 和官方 CLIP 权重，避免构造时联网 |
+| `check_setup.py` | 新服务器数据清单和本方法逐帧缓存核对 |
+| `SERVER_HANDOFF.md` | 目标服务器安装、路径、冒烟、正式实验及可视化操作手册 |

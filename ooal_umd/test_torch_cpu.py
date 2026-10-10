@@ -13,6 +13,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -23,6 +25,7 @@ from models.ooal import Mlp
 from models.seg_decoder import SegDecoder
 from ooal_umd import umd_protocol as P
 from ooal_umd.model_umd import OOALUMD, check_forward_all
+from ooal_umd.local_backbones import local_backbones
 
 
 class StubDino(nn.Module):
@@ -110,6 +113,37 @@ class ModelTest(unittest.TestCase):
         self.assertAlmostEqual(float(loss["bce"]), float(ref), places=6)
         loss["bce"].backward()
         self.assertIsNotNone(model.seg_decoder.decoder.layers[0].multihead_attn.q.weight.grad)
+
+
+class LocalBackboneTest(unittest.TestCase):
+
+    def test_local_dino_is_offline_and_strict_and_restores_loader(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "hubconf.py").touch()
+            source = nn.Linear(3, 4)
+            checkpoint = root / "weights.pth"
+            torch.save(source.state_dict(), checkpoint)
+            args = SimpleNamespace(dino_repo=str(root), dino_weights=str(checkpoint), clip_weights=None)
+            original = torch.hub.load
+            with patch("torch.hub.load", return_value=nn.Linear(3, 4)) as native_loader:
+                with local_backbones(args):
+                    model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
+                self.assertIs(torch.hub.load, native_loader)
+                native_loader.assert_called_once_with(str(root), "dinov2_vitb14", source="local", pretrained=False)
+                self.assertTrue(torch.equal(model.weight, source.weight))
+            self.assertIs(torch.hub.load, original)
+            torch.save({"wrong_key": torch.zeros(1)}, checkpoint)
+            with patch("torch.hub.load", return_value=nn.Linear(3, 4)):
+                with local_backbones(args), self.assertRaises(RuntimeError):
+                    torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
+            self.assertIs(torch.hub.load, original)
+
+    def test_local_dino_requires_both_paths(self):
+        args = SimpleNamespace(dino_repo="/unused", dino_weights=None, clip_weights=None)
+        with self.assertRaises(ValueError):
+            with local_backbones(args):
+                pass
 
 
 @unittest.skipUnless(os.environ.get("DRAWAFFORD_ROOT"), "set DRAWAFFORD_ROOT")

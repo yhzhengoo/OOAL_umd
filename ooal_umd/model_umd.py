@@ -13,9 +13,14 @@ import torch
 import torch.nn.functional as F
 
 from models.ooal import Net
+from ooal_umd.local_backbones import local_backbones
 
 
 class OOALUMD(Net):
+
+    def __init__(self, args, input_dim, out_dim, dino_pretrained="dinov2_vitb14"):
+        with local_backbones(args):
+            super().__init__(args, input_dim, out_dim, dino_pretrained)
 
     @torch.no_grad()
     def forward_all(self, img: torch.Tensor) -> torch.Tensor:
